@@ -1,16 +1,16 @@
 use csv::{Reader, Writer};
 use serde::{Deserialize, Serialize};
-use std::io::Result;
+use std::{io::Result, path::Path};
 
-pub struct Database {
-    path: String,
+pub struct Database<PA: AsRef<Path>> {
+    path: PA,
     extension: String,
 }
 
-impl Database {
-    pub fn new(path: &str, extension: Option<&str>) -> Self {
+impl<PA: AsRef<Path>> Database<PA> {
+    pub fn new(path: PA, extension: Option<&str>) -> Self {
         Self {
-            path: String::from(path),
+            path,
             extension: String::from(extension.unwrap_or("csv")),
         }
     }
@@ -20,8 +20,11 @@ impl Database {
         T: Serialize + for<'de> Deserialize<'de>,
         P: FnMut(&T) -> bool,
     {
-        let mut rdr =
-            Reader::from_path(format!("{}/{}.{}", self.path, collection, self.extension))?;
+        let mut rdr = Reader::from_path(
+            self.path
+                .as_ref()
+                .join(format!("{}.{}", collection, self.extension)),
+        )?;
         let results: std::result::Result<Vec<T>, csv::Error> = rdr.deserialize().collect();
 
         Ok(results?.into_iter().filter(predicate).collect())
@@ -32,8 +35,11 @@ impl Database {
         T: Serialize + for<'de> Deserialize<'de>,
     {
         let documents: Vec<T> = self.find(collection, |_| true)?;
-        let mut wrt =
-            Writer::from_path(format!("{}/{}.{}", self.path, collection, self.extension))?;
+        let mut wrt = Writer::from_path(
+            self.path
+                .as_ref()
+                .join(format!("{}.{}", collection, self.extension)),
+        )?;
 
         for document in documents {
             wrt.serialize(document)?;
@@ -52,8 +58,11 @@ impl Database {
         let documents: Vec<T> = self.find(collection, |_| true)?;
         let remove: Vec<&T> = documents.iter().filter(predicate).collect();
         let results: Vec<&T> = documents.iter().filter(|d| !remove.contains(d)).collect();
-        let mut wrt =
-            Writer::from_path(format!("{}/{}.{}", self.path, collection, self.extension))?;
+        let mut wrt = Writer::from_path(
+            self.path
+                .as_ref()
+                .join(format!("{}.{}", collection, self.extension)),
+        )?;
 
         for document in results {
             wrt.serialize(document)?;
@@ -70,8 +79,11 @@ impl Database {
         let documents: Vec<T> = self.find(collection, |_| true)?;
         let remove: Vec<&T> = documents.iter().filter(predicate).collect();
         let results: Vec<&T> = documents.iter().filter(|d| !remove.contains(d)).collect();
-        let mut wrt =
-            Writer::from_path(format!("{}/{}.{}", self.path, collection, self.extension))?;
+        let mut wrt = Writer::from_path(
+            self.path
+                .as_ref()
+                .join(format!("{}.{}", collection, self.extension)),
+        )?;
 
         for document in results {
             wrt.serialize(document)?;
