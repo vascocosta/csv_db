@@ -1,6 +1,6 @@
 use csv::{Reader, Writer};
 use serde::{Deserialize, Serialize};
-use std::{io::Result, path::Path};
+use std::{error::Error, path::Path};
 
 pub struct Database<PA: AsRef<Path>> {
     path: PA,
@@ -15,7 +15,7 @@ impl<PA: AsRef<Path>> Database<PA> {
         }
     }
 
-    pub fn find<T, P>(&self, collection: &str, predicate: P) -> Result<Vec<T>>
+    pub fn find<T, P>(&self, collection: &str, predicate: P) -> Result<Vec<T>, Box<dyn Error>>
     where
         T: Serialize + for<'de> Deserialize<'de>,
         P: FnMut(&T) -> bool,
@@ -25,12 +25,12 @@ impl<PA: AsRef<Path>> Database<PA> {
                 .as_ref()
                 .join(format!("{}.{}", collection, self.extension)),
         )?;
-        let results: std::result::Result<Vec<T>, csv::Error> = rdr.deserialize().collect();
+        let results: Result<Vec<T>, csv::Error> = rdr.deserialize().collect();
 
         Ok(results?.into_iter().filter(predicate).collect())
     }
 
-    pub fn insert<T>(&self, collection: &str, document: T) -> Result<()>
+    pub fn insert<T>(&self, collection: &str, document: T) -> Result<(), Box<dyn Error>>
     where
         T: Serialize + for<'de> Deserialize<'de>,
     {
@@ -50,7 +50,7 @@ impl<PA: AsRef<Path>> Database<PA> {
         Ok(())
     }
 
-    pub fn delete<T, P>(&self, collection: &str, predicate: P) -> Result<()>
+    pub fn delete<T, P>(&self, collection: &str, predicate: P) -> Result<(), Box<dyn Error>>
     where
         T: Serialize + for<'de> Deserialize<'de> + PartialEq,
         P: FnMut(&&T) -> bool,
@@ -71,7 +71,12 @@ impl<PA: AsRef<Path>> Database<PA> {
         Ok(())
     }
 
-    pub fn update<T, P>(&self, collection: &str, document: T, predicate: P) -> Result<()>
+    pub fn update<T, P>(
+        &self,
+        collection: &str,
+        document: T,
+        predicate: P,
+    ) -> Result<(), Box<dyn Error>>
     where
         T: Serialize + for<'de> serde::Deserialize<'de> + PartialEq,
         P: FnMut(&&T) -> bool,
