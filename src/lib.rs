@@ -1,13 +1,14 @@
 use csv::{Reader, Writer};
 use serde::{Deserialize, Serialize};
-use std::{error::Error, path::Path};
+use std::{error::Error, path::Path, sync::Arc};
+use tokio::{task, task::JoinError};
 
-pub struct Database<PA: AsRef<Path>> {
+pub struct Database<PA: AsRef<Path> + Send + Sync + Clone> {
     path: PA,
     extension: String,
 }
 
-impl<PA: AsRef<Path>> Database<PA> {
+impl<PA: AsRef<Path> + Send + Sync + Clone + 'static> Database<PA> {
     pub fn new(path: PA, extension: Option<&str>) -> Self {
         Self {
             path,
@@ -15,87 +16,124 @@ impl<PA: AsRef<Path>> Database<PA> {
         }
     }
 
-    pub fn find<T, P>(&self, collection: &str, predicate: P) -> Result<Vec<T>, Box<dyn Error>>
+    pub async fn find<T, P>(
+        self: Arc<Self>,
+        collection: &str,
+        predicate: P,
+    ) -> Result<Vec<T>, Box<dyn Error>>
     where
-        T: Serialize + for<'de> Deserialize<'de>,
+        T: Serialize + for<'de> Deserialize<'de> + Send + 'static,
         P: FnMut(&T) -> bool,
     {
-        let mut rdr = Reader::from_path(
-            self.path
-                .as_ref()
-                .join(format!("{}.{}", collection, self.extension)),
-        )?;
-        let results: Result<Vec<T>, csv::Error> = rdr.deserialize().collect();
+        let collection = collection.to_string();
+        let results: Result<Result<Vec<T>, _>, _> = task::spawn_blocking(move || {
+            let mut rdr = Reader::from_path(
+                self.path
+                    .as_ref()
+                    .join(format!("{}.{}", collection, self.extension)),
+            )?;
 
-        Ok(results?.into_iter().filter(predicate).collect())
+            rdr.deserialize().collect()
+        })
+        .await;
+
+        Ok(results??.into_iter().filter(predicate).collect())
     }
 
-    pub fn insert<T>(&self, collection: &str, document: T) -> Result<(), Box<dyn Error>>
-    where
-        T: Serialize + for<'de> Deserialize<'de>,
-    {
-        let documents: Vec<T> = self.find(collection, |_| true)?;
-        let mut wrt = Writer::from_path(
-            self.path
-                .as_ref()
-                .join(format!("{}.{}", collection, self.extension)),
-        )?;
-
-        for document in documents {
-            wrt.serialize(document)?;
-        }
-
-        wrt.serialize(document)?;
-
-        Ok(())
-    }
-
-    pub fn delete<T, P>(&self, collection: &str, predicate: P) -> Result<(), Box<dyn Error>>
-    where
-        T: Serialize + for<'de> Deserialize<'de> + PartialEq,
-        P: FnMut(&&T) -> bool,
-    {
-        let documents: Vec<T> = self.find(collection, |_| true)?;
-        let remove: Vec<&T> = documents.iter().filter(predicate).collect();
-        let results: Vec<&T> = documents.iter().filter(|d| !remove.contains(d)).collect();
-        let mut wrt = Writer::from_path(
-            self.path
-                .as_ref()
-                .join(format!("{}.{}", collection, self.extension)),
-        )?;
-
-        for document in results {
-            wrt.serialize(document)?;
-        }
-
-        Ok(())
-    }
-
-    pub fn update<T, P>(
-        &self,
+    pub async fn insert<T>(
+        self: Arc<Self>,
         collection: &str,
         document: T,
-        predicate: P,
     ) -> Result<(), Box<dyn Error>>
     where
-        T: Serialize + for<'de> serde::Deserialize<'de> + PartialEq,
+        T: Serialize + for<'de> Deserialize<'de> + Send + 'static,
+    {
+        let documents: Vec<T> = self.clone().find(collection, |_| true).await?;
+        let collection = collection.to_string();
+        let result: Result<Result<(), csv::Error>, JoinError> = task::spawn_blocking(move || {
+            let mut wrt = Writer::from_path(
+                self.path
+                    .as_ref()
+                    .join(format!("{}.{}", collection, self.extension)),
+            )?;
+
+            for document in documents {
+                wrt.serialize(document)?;
+            }
+
+            wrt.serialize(document)?;
+
+            Ok(())
+        })
+        .await;
+
+        Ok(result??)
+    }
+
+    pub async fn delete<T, P>(
+        self: Arc<Self>,
+        collection: &str,
+        mut predicate: P,
+    ) -> Result<(), Box<dyn Error>>
+    where
+        T: Serialize + for<'de> Deserialize<'de> + PartialEq + Send + 'static,
         P: FnMut(&&T) -> bool,
     {
-        let documents: Vec<T> = self.find(collection, |_| true)?;
-        let remove: Vec<&T> = documents.iter().filter(predicate).collect();
-        let results: Vec<&T> = documents.iter().filter(|d| !remove.contains(d)).collect();
-        let mut wrt = Writer::from_path(
-            self.path
-                .as_ref()
-                .join(format!("{}.{}", collection, self.extension)),
-        )?;
+        let mut documents: Vec<T> = self.clone().find(collection, |_| true).await?;
+        let collection = collection.to_string();
 
-        for document in results {
+        documents.retain(|d| !predicate(&d));
+
+        let result: Result<Result<(), csv::Error>, JoinError> = task::spawn_blocking(move || {
+            let mut wrt = Writer::from_path(
+                self.path
+                    .as_ref()
+                    .join(format!("{}.{}", collection, self.extension)),
+            )?;
+
+            for document in &documents {
+                wrt.serialize(document)?;
+            }
+
+            Ok(())
+        })
+        .await;
+
+        Ok(result??)
+    }
+
+    pub async fn update<T, P>(
+        self: Arc<Self>,
+        collection: &str,
+        document: T,
+        mut predicate: P,
+    ) -> Result<(), Box<dyn Error>>
+    where
+        T: Serialize + for<'de> Deserialize<'de> + PartialEq + Send + 'static,
+        P: FnMut(&&T) -> bool,
+    {
+        let mut documents: Vec<T> = self.clone().find(collection, |_| true).await?;
+        let collection = collection.to_string();
+
+        documents.retain(|d| !predicate(&d));
+
+        let result: Result<Result<(), csv::Error>, JoinError> = task::spawn_blocking(move || {
+            let mut wrt = Writer::from_path(
+                self.path
+                    .as_ref()
+                    .join(format!("{}.{}", collection, self.extension)),
+            )?;
+
+            for document in documents {
+                wrt.serialize(document)?;
+            }
+
             wrt.serialize(document)?;
-        }
 
-        wrt.serialize(document)?;
+            Ok(())
+        })
+        .await;
 
-        Ok(())
+        Ok(result??)
     }
 }

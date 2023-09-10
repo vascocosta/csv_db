@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 csv = "1.2.2"
 serde = { version = "1.0.188", features = ["derive"] }
+tokio = { version = "1.32.0", features = ["full"] }
