@@ -24,6 +24,10 @@ code. To achieve this, and since the [`csv`] crate isn't asynchronous, each meth
 wraps any potentially blocking code (like opening files or dealing with records) inside a
 [`tokio::task::spawn_blocking`] function.
 
+[`csv`]: https://docs.rs/csv/1.2.2/x86_64-unknown-linux-gnu/csv/index.html
+[`serde`]: https://docs.rs/serde/1.0.188/x86_64-unknown-linux-gnu/serde/index.html
+[`tokio::task::spawn_blocking`]: https://docs.rs/tokio/1.32.0/x86_64-unknown-linux-gnu/tokio/task/blocking/fn.spawn_blocking.html
+
 # Examples
 
 ```rust

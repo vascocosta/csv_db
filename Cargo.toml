@@ -1,9 +1,12 @@
 [package]
 name = "csv_db"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "A simple embedded NoSQL database using CSV files for storage."
 license = "MIT OR Apache-2.0"
+authors = ["Vasco Costa"]
+repository = "https://github.com/vascocosta/csv_db/"
+keywords = ["csv", "db", "database", "nosql"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
