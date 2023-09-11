@@ -1,9 +1,75 @@
+//! # csv db
+//!
+//! `csv_db` is a simple embedded CSV database.
+//! It allows using CSV files to perform these operations on collections of documents:
+//!
+//! * find
+//! * insert
+//! * delete
+//! * update
+//!
+//! # Examples
+//! ```
+//! use csv_db::Database;
+//! use serde::{Deserialize, Serialize};
+//!
+//! #[derive(Debug, Deserialize, PartialEq, Serialize)]
+//! struct User {
+//!     id: usize,
+//!     first_name: String,
+//!     last_name: String,
+//!     age: u32,
+//! }
+//!
+//! #[tokio::main]
+//! async fn main() {
+//!     let db = Database::new("data", None);
+//!
+//!     let user = User {
+//!         id: 1,
+//!         first_name: String::from("First"),
+//!         last_name: String::from("Last"),
+//!         age: 20,
+//!     };
+//!
+//!     // Using insert to add a new user to the collection.
+//!     db.insert("users", user)
+//!         .await
+//!         .expect("Could not insert user.");
+//!
+//!     // Using find to search users on a collection.
+//!     let adults = db
+//!         .find("users", |u: &User| u.age >= 18)
+//!         .await
+//!         .expect("Problem searching user.");
+//!
+//!     println!("{:?}", adults);
+//!
+//!     let replace = User {
+//!         id: 0,
+//!         first_name: String::from("First"),
+//!         last_name: String::from("Last"),
+//!         age: 21,
+//!     };
+//!
+//!     // Using update to replace one of the users in the collection.
+//!     db.update("users", replace, |u: &&User| u.id == 1)
+//!         .await
+//!         .expect("Problem updating user.");
+//!
+//!     // Using delete to remove one of the users in the collection.
+//!     db.delete("users", |u: &&User| u.id == 1)
+//!         .await
+//!         .expect("Problem deleting user.");
+//! }
+//! ```
+
 use csv::{Reader, Writer};
 use serde::{Deserialize, Serialize};
 use std::{error::Error, path::Path, sync::Arc};
 use tokio::{task, task::JoinError};
 
-pub struct Config<PA> {
+struct Config<PA> {
     path: PA,
     extension: String,
 }
