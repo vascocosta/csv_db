@@ -26,7 +26,7 @@ wraps any potentially blocking code (like opening files or dealing with records)
 
 # Examples
 
-```
+```rust
 use csv_db::Database;
 use serde::{Deserialize, Serialize};
 
