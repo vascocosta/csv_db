@@ -20,8 +20,8 @@ expect generic documents to implement `Serialize`/`Deserialize` traits using [`s
 macros.
 
 The methods are all asynchronous, so that you can easily integrate this crate into asynchronous
-code. To achieve this, and since the [`csv`] isn't asynchronous, each method of `csv_db` wraps
-any potentially blocking code (like opening files or dealing with records) inside a
+code. To achieve this, and since the [`csv`] crate isn't asynchronous, each method of `csv_db`
+wraps any potentially blocking code (like opening files or dealing with records) inside a
 [`tokio::task::spawn_blocking`] function.
 
 # Examples
