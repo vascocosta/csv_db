@@ -24,6 +24,11 @@
 //! wraps any potentially blocking code (like opening files or dealing with records) inside a
 //! [`tokio::task::spawn_blocking`] function.
 //!
+//! Starting with version 0.2.0, all method invocations that write data, namely insert, delete and
+//! update, will automatically try to create the collection file, if it doesn't already exist,
+//! including all parent folders. For instance, if you try to insert into the users collection, the
+//! file `{path}/users.csv`, will be created if it doesn't exist, including all folders in `{path}`.
+//!
 //! # Examples
 //!
 //! ```
@@ -40,7 +45,8 @@
 //!
 //! #[tokio::main]
 //! async fn main() {
-//!     // Create a new Database with a mandatory path and an optional file extension.
+//!     // Create a new Database with a path for the base folder.
+//!     // Optionally provide an extension for the files (csv by default).
 //!     let db = Database::new("data", None);
 //!
 //!     let user = User {
@@ -172,12 +178,15 @@ where
         let collection = collection.to_string();
         let config = self.config.clone();
         let results: Result<Result<Vec<T>, _>, _> = task::spawn_blocking(move || {
-            let mut rdr = Reader::from_path(
+            let mut rdr = match Reader::from_path(
                 config
                     .path
                     .as_ref()
                     .join(format!("{}.{}", collection, config.extension)),
-            )?;
+            ) {
+                Ok(rdr) => rdr,
+                Err(_) => return Ok(Vec::new()),
+            };
 
             rdr.deserialize().collect()
         })
@@ -331,12 +340,25 @@ where
         let collection = collection.to_string();
         let config = self.config.clone();
         let result: Result<Result<(), csv::Error>, JoinError> = task::spawn_blocking(move || {
-            let mut wrt = Writer::from_path(
-                config
-                    .path
-                    .as_ref()
-                    .join(format!("{}.{}", collection, config.extension)),
-            )?;
+            let path = config
+                .path
+                .as_ref()
+                .join(format!("{}.{}", collection, config.extension));
+
+            if let Some(parent_path) = path.parent() {
+                std::fs::create_dir_all(parent_path)?
+            }
+
+            let mut wrt = match Writer::from_path(&path) {
+                Ok(wrt) => wrt,
+                Err(error) => match error.kind() {
+                    csv::ErrorKind::Io(_) => match std::fs::File::create(&path) {
+                        Ok(_) => csv::Writer::from_path(&path)?,
+                        Err(_) => return Err(error),
+                    },
+                    _ => return Err(error),
+                },
+            };
 
             for document in documents {
                 wrt.serialize(document)?;

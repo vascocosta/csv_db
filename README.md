@@ -24,6 +24,11 @@ code. To achieve this, and since the [`csv`] crate isn't asynchronous, each meth
 wraps any potentially blocking code (like opening files or dealing with records) inside a
 [`tokio::task::spawn_blocking`] function.
 
+Starting with version 0.2.0, all method invocations that write data, namely insert, delete and
+update, will automatically try to create the collection file, if it doesn't already exist,
+including all parent folders. For instance, if you try to insert into the users collection, the
+file `{path}/users.csv`, will be created if it doesn't exist, including all folders in `{path}`.
+
 [`csv`]: https://docs.rs/csv/1.2.2/x86_64-unknown-linux-gnu/csv/index.html
 [`serde`]: https://docs.rs/serde/1.0.188/x86_64-unknown-linux-gnu/serde/index.html
 [`tokio::task::spawn_blocking`]: https://docs.rs/tokio/1.32.0/x86_64-unknown-linux-gnu/tokio/task/blocking/fn.spawn_blocking.html
@@ -44,7 +49,8 @@ struct User {
 
 #[tokio::main]
 async fn main() {
-    // Create a new Database with a mandatory path and an optional file extension.
+    // Create a new Database with a path for the base folder.
+    // Optionally provide an extension for the files (csv by default).
     let db = Database::new("data", None);
 
     let user = User {
