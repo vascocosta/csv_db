@@ -222,9 +222,12 @@ where
     where
         T: Serialize + for<'de> Deserialize<'de> + Send + 'static,
     {
-        let documents: Vec<T> = self.clone().find(collection, |_| true).await?;
+        let mut documents: Vec<T> = self.find(collection, |_| true).await?;
         let collection = collection.to_string();
         let config = self.config.clone();
+
+        documents.push(document);
+
         let result: Result<Result<(), csv::Error>, JoinError> = task::spawn_blocking(move || {
             let mut wrt = Writer::from_path(
                 config
@@ -236,8 +239,6 @@ where
             for document in documents {
                 wrt.serialize(document)?;
             }
-
-            wrt.serialize(document)?;
 
             Ok(())
         })
@@ -280,7 +281,7 @@ where
         T: Serialize + for<'de> Deserialize<'de> + PartialEq + Send + 'static,
         P: FnMut(&&T) -> bool,
     {
-        let mut documents: Vec<T> = self.clone().find(collection, |_| true).await?;
+        let mut documents: Vec<T> = self.find(collection, |_| true).await?;
         let collection = collection.to_string();
         let config = self.config.clone();
 
@@ -347,11 +348,12 @@ where
         T: Serialize + for<'de> Deserialize<'de> + PartialEq + Send + 'static,
         P: FnMut(&&T) -> bool,
     {
-        let mut documents: Vec<T> = self.clone().find(collection, |_| true).await?;
+        let mut documents: Vec<T> = self.find(collection, |_| true).await?;
         let collection = collection.to_string();
         let config = self.config.clone();
 
         documents.retain(|d| !predicate(&d));
+        documents.push(document);
 
         let result: Result<Result<(), csv::Error>, JoinError> = task::spawn_blocking(move || {
             let mut wrt = Writer::from_path(
@@ -364,8 +366,6 @@ where
             for document in documents {
                 wrt.serialize(document)?;
             }
-
-            wrt.serialize(document)?;
 
             Ok(())
         })
