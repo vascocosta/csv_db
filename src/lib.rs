@@ -223,28 +223,10 @@ where
         T: Serialize + for<'de> Deserialize<'de> + Send + 'static,
     {
         let mut documents: Vec<T> = self.find(collection, |_| true).await?;
-        let collection = collection.to_string();
-        let config = self.config.clone();
 
         documents.push(document);
 
-        let result: Result<Result<(), csv::Error>, JoinError> = task::spawn_blocking(move || {
-            let mut wrt = Writer::from_path(
-                config
-                    .path
-                    .as_ref()
-                    .join(format!("{}.{}", collection, config.extension)),
-            )?;
-
-            for document in documents {
-                wrt.serialize(document)?;
-            }
-
-            Ok(())
-        })
-        .await;
-
-        Ok(result??)
+        Ok(self.write(collection, documents).await??)
     }
 
     /// Delete a document by filtering with a predicate from a collection.
@@ -282,28 +264,10 @@ where
         P: FnMut(&&T) -> bool,
     {
         let mut documents: Vec<T> = self.find(collection, |_| true).await?;
-        let collection = collection.to_string();
-        let config = self.config.clone();
 
         documents.retain(|d| !predicate(&d));
 
-        let result: Result<Result<(), csv::Error>, JoinError> = task::spawn_blocking(move || {
-            let mut wrt = Writer::from_path(
-                config
-                    .path
-                    .as_ref()
-                    .join(format!("{}.{}", collection, config.extension)),
-            )?;
-
-            for document in &documents {
-                wrt.serialize(document)?;
-            }
-
-            Ok(())
-        })
-        .await;
-
-        Ok(result??)
+        Ok(self.write(collection, documents).await??)
     }
 
     /// Update a document by filtering with a predicate on a collection.
@@ -349,12 +313,23 @@ where
         P: FnMut(&&T) -> bool,
     {
         let mut documents: Vec<T> = self.find(collection, |_| true).await?;
-        let collection = collection.to_string();
-        let config = self.config.clone();
 
         documents.retain(|d| !predicate(&d));
         documents.push(document);
 
+        Ok(self.write(collection, documents).await??)
+    }
+
+    async fn write<T>(
+        &self,
+        collection: &str,
+        documents: Vec<T>,
+    ) -> Result<Result<(), csv::Error>, JoinError>
+    where
+        T: Serialize + Send + 'static,
+    {
+        let collection = collection.to_string();
+        let config = self.config.clone();
         let result: Result<Result<(), csv::Error>, JoinError> = task::spawn_blocking(move || {
             let mut wrt = Writer::from_path(
                 config
@@ -371,6 +346,6 @@ where
         })
         .await;
 
-        Ok(result??)
+        result
     }
 }
