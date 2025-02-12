@@ -322,8 +322,14 @@ where
         P: FnMut(&&T) -> bool,
     {
         let mut documents: Vec<T> = self.find(collection, |_| true).await?;
+        let original_len = documents.len();
 
         documents.retain(|d| !predicate(&d));
+
+        if documents.len() == original_len {
+            return Err("Did not match any document to update".into());
+        }
+
         documents.push(document);
 
         Ok(self.write(collection, documents).await??)
