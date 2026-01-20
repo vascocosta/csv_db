@@ -88,12 +88,28 @@
 
 use csv::{Reader, Writer};
 use serde::{Deserialize, Serialize};
-use std::{error::Error, path::Path, sync::Arc};
+use std::{path::Path, sync::Arc};
+use thiserror::Error;
 use tokio::{task, task::JoinError};
 
 struct Config<PA> {
     path: PA,
     extension: String,
+}
+
+#[derive(Debug, Error)]
+pub enum DbError {
+    #[error("CSV error")]
+    Csv(#[from] csv::Error),
+
+    #[error("I/O error")]
+    Io(#[from] std::io::Error),
+
+    #[error("Task join error")]
+    Join(#[from] tokio::task::JoinError),
+
+    #[error("No document matched the predicate")]
+    NoMatch,
 }
 
 /// A Database provides methods to access data.
@@ -170,14 +186,14 @@ where
     ///         .expect("Problem searching user.");
     /// }
     /// ```
-    pub async fn find<T, P>(&self, collection: &str, predicate: P) -> Result<Vec<T>, Box<dyn Error>>
+    pub async fn find<T, P>(&self, collection: &str, predicate: P) -> Result<Vec<T>, DbError>
     where
         T: Serialize + for<'de> Deserialize<'de> + Send + 'static,
         P: FnMut(&T) -> bool,
     {
         let collection = collection.to_string();
         let config = self.config.clone();
-        let results: Result<Result<Vec<T>, _>, _> = task::spawn_blocking(move || {
+        let results = task::spawn_blocking(move || {
             let mut rdr = match Reader::from_path(
                 config
                     .path
@@ -188,11 +204,11 @@ where
                 Err(_) => return Ok(Vec::new()),
             };
 
-            rdr.deserialize().collect()
+            rdr.deserialize().collect::<Result<Vec<T>, csv::Error>>()
         })
-        .await;
+        .await??;
 
-        Ok(results??.into_iter().filter(predicate).collect())
+        Ok(results.into_iter().filter(predicate).collect())
     }
 
     /// Insert a new document into a collection.
@@ -227,7 +243,7 @@ where
     ///         .expect("Problem inserting user.");
     /// }
     /// ```
-    pub async fn insert<T>(&self, collection: &str, document: T) -> Result<(), Box<dyn Error>>
+    pub async fn insert<T>(&self, collection: &str, document: T) -> Result<(), DbError>
     where
         T: Serialize + for<'de> Deserialize<'de> + Send + 'static,
     {
@@ -263,11 +279,7 @@ where
     ///         .expect("Problem deleting user.");
     /// }
     /// ```
-    pub async fn delete<T, P>(
-        &self,
-        collection: &str,
-        mut predicate: P,
-    ) -> Result<(), Box<dyn Error>>
+    pub async fn delete<T, P>(&self, collection: &str, mut predicate: P) -> Result<(), DbError>
     where
         T: Serialize + for<'de> Deserialize<'de> + PartialEq + Send + 'static,
         P: FnMut(&&T) -> bool,
@@ -316,7 +328,7 @@ where
         collection: &str,
         document: T,
         mut predicate: P,
-    ) -> Result<(), Box<dyn Error>>
+    ) -> Result<(), DbError>
     where
         T: Serialize + for<'de> Deserialize<'de> + PartialEq + Send + 'static,
         P: FnMut(&&T) -> bool,
@@ -327,7 +339,7 @@ where
         documents.retain(|d| !predicate(&d));
 
         if documents.len() == original_len {
-            return Err("Did not match any document to update".into());
+            return Err(DbError::NoMatch);
         }
 
         documents.push(document);
@@ -345,7 +357,7 @@ where
     {
         let collection = collection.to_string();
         let config = self.config.clone();
-        let result: Result<Result<(), csv::Error>, JoinError> = task::spawn_blocking(move || {
+        let result = task::spawn_blocking(move || {
             let path = config
                 .path
                 .as_ref()
